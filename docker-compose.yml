@@ -1,0 +1,56 @@
+services:
+  server:
+    build:
+      context: ./server
+    container_name: sse-server
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      CORS_ORIGIN: http://localhost:5173
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - ./server/src:/app/src
+      - server_node_modules:/app/node_modules
+    depends_on:
+      redis:
+        condition: service_started
+    networks:
+      - app-network
+
+  web:
+    build:
+      context: ./web
+    container_name: sse-web
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:3000
+    volumes:
+      - ./web/src:/app/src
+      - ./web/index.html:/app/index.html
+      - ./web/vite.config.ts:/app/vite.config.ts
+      - web_node_modules:/app/node_modules
+    depends_on:
+      - server
+    networks:
+      - app-network
+
+  redis:
+    image: redis:alpine
+    container_name: sse-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  server_node_modules:
+  web_node_modules:
