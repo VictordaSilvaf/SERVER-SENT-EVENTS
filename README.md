@@ -28,15 +28,42 @@ O frontend React escuta o stream SSE e exibe um histórico de notificações con
 ```mermaid
 flowchart LR
     Publisher["Publicador\n(CLI / outro serviço)"] -->|PUBLISH notifications| Redis[(Redis)]
-    Redis -->|SUBSCRIBE| Server[Express Server]
-    Server -->|SSE /stream| Browser[React App]
-    Browser -->|EventSource| Server
+    Redis -->|SUBSCRIBE única| Singleton["RedisConnection\n(Singleton)"]
+    Singleton -->|broadcast| SSE["Clientes SSE\n(Set compartilhado)"]
+    SSE -->|/stream| Browser1[Navegador 1]
+    SSE -->|/stream| Browser2[Navegador 2]
+    SSE -->|/stream| BrowserN[Navegador N]
+    Browser1 -->|EventSource| Server[Express Server]
+    Browser2 -->|EventSource| Server
+    BrowserN -->|EventSource| Server
 ```
 
 1. Um publicador envia uma mensagem ao canal `notifications` no Redis.
-2. O servidor Express, inscrito nesse canal, recebe a mensagem via Pub/Sub.
-3. O servidor repassa a mensagem a todos os clientes conectados no endpoint `/stream` (SSE).
+2. A instância única de `RedisConnection` (Singleton) recebe a mensagem via Pub/Sub.
+3. O servidor repassa a mensagem a **todos** os clientes SSE conectados — sem abrir uma conexão Redis por usuário.
 4. O frontend recebe o evento `notification` e atualiza o histórico na tela.
+
+### Padrão Singleton (`RedisConnection`)
+
+O backend usa o padrão **Singleton** para garantir uma única instância de conexão com o Redis compartilhada por toda a aplicação:
+
+| Recurso | Instâncias | Uso |
+|---------|------------|-----|
+| `RedisConnection` | **1** (Singleton) | Ponto central de acesso ao Redis |
+| Cliente de comandos | **1** | `PING` no `/health` e operações gerais |
+| Cliente subscriber | **1** | Inscrição no canal `notifications` |
+| Conexões SSE (`/stream`) | **N** (uma por navegador) | Apenas HTTP/SSE — **não** abrem conexão Redis |
+
+O Redis exige conexões separadas para comandos e Pub/Sub, mas ambas são criadas **uma única vez** dentro do Singleton e reutilizadas por todos os usuários conectados.
+
+```typescript
+// Uso em qualquer parte do servidor
+const redisConnection = RedisConnection.getInstance();
+const redis = redisConnection.getClient();       // comandos
+const subscriber = redisConnection.getSubscriber(); // pub/sub
+```
+
+Ao encerrar o processo (`SIGINT` / `SIGTERM`), `disconnect()` fecha as conexões e libera a instância.
 
 ![Diagrama da arquitetura](./docs/screenshots/arquitetura.png)
 
@@ -49,6 +76,7 @@ flowchart LR
 - **Backend:** Node.js, Express 5, ioredis, TypeScript, tsx
 - **Frontend:** React 19, Vite 7, TypeScript
 - **Infra:** Docker Compose, Redis Alpine
+- **Padrões:** Singleton (`RedisConnection`) para conexão Redis compartilhada
 
 ---
 
@@ -185,13 +213,16 @@ data: {"message":"Sua mensagem aqui"}
 
 ```
 sse_teste/
-├── docker-compose.yml    # Orquestração dos serviços
-├── server/               # API Express + SSE + Redis subscriber
-│   └── src/app.ts
-├── web/                  # Frontend React
+├── docker-compose.yml          # Orquestração dos serviços
+├── server/                     # API Express + SSE
+│   └── src/
+│       ├── app.ts              # Rotas, SSE e broadcast
+│       └── redis/
+│           └── RedisConnection.ts  # Singleton de conexão Redis
+├── web/                        # Frontend React
 │   └── src/App.tsx
 └── docs/
-    └── screenshots/      # Prints para este README
+    └── screenshots/            # Prints para este README
 ```
 
 ---

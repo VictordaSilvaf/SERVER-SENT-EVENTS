@@ -1,7 +1,7 @@
 import express from 'express';
 import type { Response } from 'express';
 import cors from 'cors';
-import { Redis } from 'ioredis';
+import { RedisConnection } from './redis/RedisConnection.js';
 
 const app = express();
 
@@ -11,36 +11,11 @@ const port = Number(process.env.PORT) || 3000;
 const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
 const notificationsChannel = 'notifications';
 
-function createRedisClient() {
-  const redisUrl = process.env.REDIS_URL;
+const redisConnection = RedisConnection.getInstance();
+const redis = redisConnection.getClient();
+const subscriber = redisConnection.getSubscriber();
 
-  if (redisUrl) {
-    return new Redis(redisUrl);
-  }
-
-  return new Redis({
-    host: process.env.REDIS_HOST || 'localhost',
-    port: Number(process.env.REDIS_PORT) || 6379,
-    password: process.env.REDIS_PASSWORD || undefined,
-    db: Number(process.env.REDIS_DB) || 0,
-  });
-}
-
-const redis = createRedisClient();
-const subscriber = createRedisClient();
-
-function attachRedisLogs(client: Redis, label: string) {
-  client.on('connect', () => {
-    console.log(`${label} conectado`);
-  });
-
-  client.on('error', (error: Error) => {
-    console.error(`Erro no ${label}:`, error);
-  });
-}
-
-attachRedisLogs(redis, 'Redis');
-attachRedisLogs(subscriber, 'Redis subscriber');
+const clients = new Set<Response>();
 
 subscriber.on('message', (_channel, message) => {
   for (const client of clients) {
@@ -55,8 +30,6 @@ app.use(
     origin: corsOrigin,
   }),
 );
-
-const clients = new Set<Response>();
 
 app.get('/health', async (_req, res) => {
   try {
@@ -100,8 +73,7 @@ setInterval(() => {
 }, 15000);
 
 const shutdown = async () => {
-  await subscriber.quit();
-  await redis.quit();
+  await redisConnection.disconnect();
   process.exit(0);
 };
 
