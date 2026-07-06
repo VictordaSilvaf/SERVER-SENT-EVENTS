@@ -6,6 +6,9 @@ O frontend React escuta o stream SSE e exibe um histórico de notificações con
 
 ---
 
+<img width="812" height="451" alt="image" src="https://github.com/user-attachments/assets/149e7f72-5c66-46fa-b376-6bd68d45082b" />
+
+
 ## Visão geral
 
 ![Tela principal da aplicação](./docs/screenshots/tela-principal.png)
